@@ -11,6 +11,66 @@ from collections import defaultdict, namedtuple
 
 from datetime import datetime
 
+CC = namedtuple("CC", "cc_name annual_fee min_cred_limit min_income cc_type temp_res")
+
+"""
+Product Name ANZ First Visa Credit Card
+Balance transfer rate (p.a.) 0% p.a. for 16 months with 2% balance transfer fee
+Balance Transfer Revert Rate Standard Balance Transfer Revert Rate (21.49% p.a.)
+Balance Transfer Limit 95% of available credit limit
+Purchase rate (p.a.) 19.74% p.a.
+Annual fee $30 p.a.
+Interest Free Period Up to 44 days on purchases
+Cash advance rate (p.a.) 21.49% p.a.
+Min credit limit $1,000
+Max credit limit $15,000
+Minimum Monthly Repayment 2% of the closing balance or $25, whichever is greater
+Minimum Income $15,000
+Card Type Visa
+Late Payment Fee $20
+Foreign Currency Conversion Fee (VISA) 3% of transaction value
+Complimentary Travel Insurance No
+Available To Temporary Residents No
+Joint Application No
+"""
+def parse_cc_string(s):
+
+	rows = s.strip().lower().split("\n")
+
+	cc_name = None
+	cc_type = None
+	annual_fee = None
+	min_cred_limit = None
+	max_cred_limit = None
+	min_income = None
+	temp_res = None
+
+	for row in rows:
+
+		if "product" in row.split():
+			cc_name = " ".join([w.strip() for w  in row.split("product name") if w.strip()])
+		
+		if "annual" in row.split():
+			annual_fee = "".join([w for w in row.split() if "$" in w]).split("(")[-1]
+		
+		if  len(set("min credit limit".split()) & set(row.split())) == 3:
+			min_cred_limit = "".join([w for w in row.split() if "$" in w])
+
+		if len(set("minimum income".split()) & set(row.split())) == 2:
+			min_income = "".join([w for w in row.split() if "$" in w])
+
+		if len(set("card type".split()) & set(row.split())) == 2:
+			cc_type = " ".join([w.strip() for w  in row.split("card type") if w.strip()])
+
+		if len(set("available to temporary residents".split()) & set(row.split())) == 4:
+			temp_res = "".join([w.strip() for w  in row.split("available to temporary residents") if w.strip()])
+
+	return CC(cc_name=cc_name, annual_fee=annual_fee,
+		min_cred_limit=min_cred_limit,
+		min_income=min_income, cc_type=cc_type,temp_res=temp_res)
+
+collected_ccs = list()
+
 # where there's a list of letters
 start_page = "https://www.finder.com.au/credit-cards/credit-card-products"
 
@@ -25,7 +85,7 @@ lst_nav_letters = []
 lst_letters = []
 
 driver.get(start_page)
-
+time.sleep(5)
 # bar with letters
 nav_bar = driver.find_element_by_class_name('az-listing__nav')
 
@@ -35,9 +95,6 @@ for letter_block in nav_bar.find_elements_by_xpath(".//div[@class='az-listing__n
 
 print("collected {} letters to explore...".format(len(lst_nav_letters)))
 
-# now go to the table with letters
-tbl = driver.find_element_by_class_name('az-listing__items')
-
 letter_dict = defaultdict(list)   #  {"A": [url1, url2, ..]}
 
 # find all header lettters
@@ -46,22 +103,22 @@ for letter in lst_nav_letters:
 	try:
 		letter_header = driver.find_element_by_id(letter)
 	except:
-		print("nothing starts from {}".format(letter))
+		print("nothing starts from {}! on to the next letter in navigation...".format(letter))
 		continue
 
 	if letter_header:
 
 		print("exploring {}...".format(letter_header.text.strip()))
-		# need to return to parent
+
 		try:
 			letter_list = letter_header.find_element_by_xpath("..").find_element_by_class_name('az-listing__list')
 		except:
-			print("no list for this letter!")
+			print("no list for this letter! on to the next letter in navigation...")
 			continue
 		try:
 			letter_list_items = letter_list.find_elements_by_class_name('az-listing__item')
 		except:
-			print("list for this letter is empty")
+			print("list for this letter is empty! on to the next letter in navigation...")
 			continue
 
 		# so fi there are some items for this letter...
@@ -72,43 +129,66 @@ for letter in lst_nav_letters:
 				# link to the card page
 				lnk = letter_item.find_element_by_xpath(".//a[@href]").get_attribute("href")
 				letter_dict[letter].append(lnk)
-		
+
 		print("collected {} links for this letter...".format(len(letter_dict[letter])))
 		
-		# now start visiting the links
+		# now start visiting the urls
 		for lnk in letter_dict[letter]:
 
+			print("url: {}...".format(lnk))
 			driver.get(lnk)
 			# get to the more button and get another link to more details
-			time.sleep(3)
+			time.sleep(5)
 			# collect all more button links
-			more_button_links = []
+			more_info_links = []
 
 			try:
-				more_buttons = driver.find_elements_by_class_name("btn-more-link")
-				for mb in more_buttons:
-					more_button_links.append(mb.get_attribute("href"))
-				print("collected {} links to detailed information...".format(len(more_button_links)))
+				row = driver.find_element_by_xpath("//form[contains(@name, 'compareForm')]")
 			except:
-				print("found NO more buttons!")
+				print("cannot find any form with card info! going to the next link...")
+				continue
 
-			for i, mb_link in enumerate(more_button_links):  # recall these ar elinks for current letter
-				print("grabbing link {}".format(i + 1))
-				driver.get(mb_link)
-				print("ok.some sleep now...")
-				time.sleep(3)
-				# grab stuff from cc description
-				print("get the table info...")
-				try:
-					cc_string = driver.find_element_by_xpath("//table[contains(@class, 'product_infobox')]").text.strip()
-					print(cc_string)
-					print("going to next link...")
-				except:
-					print("cannot find the table with detailed info!")
+			try:
+				more_info_urls = row.find_elements_by_link_text("More info")
+			except:
+				print("cannot find any more info urls!")
+				continue
 
+			if more_info_urls:
+
+				for mb in more_info_urls:
+					more_info_links.append(mb.get_attribute("href"))
+				print("collected {} links to detailed information...".format(len(more_info_links)))
+	
+
+				for i, mb_link in enumerate(more_info_links):  # recall these ar elinks for current letter
+					print("grabbing link {}".format(i + 1))
+					driver.get(mb_link)
+					time.sleep(5)
+					try:
+						cc_string = driver.find_element_by_xpath("//table[contains(@class, 'product_infobox')]").text.strip()
+					except:
+						print("cannot find any table with credit card description!")
+						continue
+
+					if cc_string:
+						parse_cc_string(cc_string)
+
+						try:
+							collected_ccs.append(parse_cc_string(cc_string))
+						except:
+							print("cannot do parsing!")
+							continue
+
+	# go back to starting page
 	driver.get(start_page)
-	time.sleep(3)
+	time.sleep(5)
 
 driver.quit()
 
-# print("done. retrieved {} match results".format(len(list_matches)))
+print("done. retrieved {} credit card descriptions".format(len(collected_ccs)))
+
+if len(collected_ccs) > 0:
+	df = pd.DataFrame(collected_ccs, columns=collected_ccs[0]._fields)
+	print(df.head())
+	df.to_csv("ccs.csv", index=False)
